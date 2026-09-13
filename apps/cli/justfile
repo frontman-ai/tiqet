@@ -1,0 +1,68 @@
+build:
+    zig build
+
+test:
+    zig build test
+
+fmt:
+    zig fmt build.zig build.zig.zon src
+
+# Local packaging only. Release mode still requires maintainer approval before publication.
+package output mode="preview":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd -P "{{ justfile_directory() }}/../.."
+    test "$(uname -s)-$(uname -m)" = Linux-x86_64
+    test "$(zig version)" = 0.16.0
+    output={{ quote(output) }}
+    case "$output" in /*) ;; *) echo 'Output must be an absolute path outside the checkout.' >&2; exit 1;; esac
+    output=$(realpath -m "$output")
+    case "$output/" in "$PWD/"*) echo 'Output must be outside the checkout.' >&2; exit 1;; esac
+    mode={{ quote(mode) }}
+    case "$mode" in preview|release) ;; *) echo 'Mode must be preview or release.' >&2; exit 1;; esac
+    repository=$PWD
+    source_head=$(git rev-parse --verify HEAD)
+    epoch=$(git show -s --format=%ct "$source_head")
+    stage=$(mktemp -d)
+    trap 'rm -rf "$stage"' EXIT
+    if test "$mode" = release; then
+      test -z "$(git status --porcelain=v1 --untracked-files=all)" || { echo 'Release requires a clean checkout.' >&2; exit 1; }
+      # Unlike status, this includes ignored files; only generated build directories are exempt.
+      test -z "$(git ls-files --others --exclude='**/.zig-cache/**' --exclude='**/zig-out/**')" || { echo 'Release refuses untracked files, including ignored inputs.' >&2; exit 1; }
+      mkdir "$stage/source"
+      git archive "$source_head" | tar -xf - -C "$stage/source"
+      cd "$stage/source"
+      # Never build or copy release inputs from the mutable checkout, even with index flags set.
+      test -z "$(find . -type l -print -quit)" || { echo 'Release source symlinks are unsupported.' >&2; exit 1; }
+      test -s LICENSE || { echo 'Approved committed LICENSE required.' >&2; exit 1; }
+    fi
+    version=$(awk -F '"' '/^pub const version = / {print $2}' libs/core/src/root.zig)
+    test -n "$version"
+    for manifest in libs/core/build.zig.zon apps/cli/build.zig.zon; do
+      test "$(awk -F '"' '/\.version = / {print $2}' "$manifest")" = "$version"
+    done
+    for mode_opt in Debug ReleaseSafe; do
+      (cd libs/core && zig build test -Doptimize="$mode_opt" --summary all)
+      (cd apps/cli && zig build test -Doptimize="$mode_opt" --summary all)
+    done
+    zig fmt --check apps/cli/src libs/core/src
+    git -C "$repository" diff --check
+    mkdir -p "$output"
+    name="tiqet-${version}-linux-x86_64"
+    test ! -e "$output/$name.tar.gz"
+    test ! -e "$output/SHA256SUMS"
+    (cd apps/cli && zig build test -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl -Dcpu=baseline --summary all)
+    (cd apps/cli && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl -Dcpu=baseline --prefix "$stage/build")
+    test "$("$stage/build/bin/tiqet" --version)" = "tiqet $version"
+    mkdir -p "$stage/$name/skills/tiqet-workflow"
+    install -m 755 "$stage/build/bin/tiqet" "$stage/$name/tiqet"
+    cp README.md "$stage/$name/"
+    cp skills/tiqet-workflow/SKILL.md "$stage/$name/skills/tiqet-workflow/"
+    if test -s LICENSE; then cp LICENSE "$stage/$name/"; fi
+    if test -s NOTICE; then cp NOTICE "$stage/$name/"; fi
+    printf 'version=%s\nmode=%s\nsource_head=%s\nzig=0.16.0\ntarget=x86_64-linux-musl\n' "$version" "$mode" "$source_head" > "$stage/$name/BUILD.txt"
+    if test "$mode" = preview; then
+      printf 'LOCAL PREVIEW ONLY. Not an approved source release. License and launch gates can be incomplete.\n' > "$stage/$name/PREVIEW.txt"
+    fi
+    tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -C "$stage" -cf - "$name" | gzip -n > "$output/$name.tar.gz"
+    (cd "$output" && sha256sum "$name.tar.gz" > SHA256SUMS && sha256sum --check SHA256SUMS)

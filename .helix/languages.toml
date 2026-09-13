@@ -1,0 +1,9 @@
+[language-server.zls]
+command = "/home/bluehotdog/.local/share/mise/installs/zls/0.16.0/zls"
+config.zls.zig_exe_path = "/home/bluehotdog/.local/share/mise/installs/zig/0.16.0/zig"
+config.zls.enable_build_on_save = true
+
+[[language]]
+name = "zig"
+language-servers = ["zls"]
+formatter = { command = "/home/bluehotdog/.local/share/mise/installs/zig/0.16.0/zig", args = ["fmt", "--stdin"] }

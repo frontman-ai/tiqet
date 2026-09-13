@@ -1,0 +1,27 @@
+name: Alpha bug report
+description: Report a reproducible Tiqet failure without private event logs.
+body:
+  - type: markdown
+    attributes:
+      value: Do not upload credentials, private source, personal paths, or raw event logs. Use a disposable repository for the reproduction.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include tiqet --version, OS/architecture, git --version, harness/version, container/worktree setup, and archive SHA-256 if available.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Sanitized reproduction
+      description: Provide exact steps in a disposable repository. State whether an event can have persisted before the error.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Include sanitized error text and any workaround. Do not retry uncertain creates blindly.
+    validations:
+      required: true

@@ -1,0 +1,2 @@
+[editor]
+workspace-lsp-roots = ["apps/cli", "libs/core"]
